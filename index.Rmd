@@ -46,92 +46,298 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+Sarah Lucas sml3855
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+The dataset used for this project contains pulse rate data collected from a sample of 232 students before and after exercise sourced from the Stat2Data package. The numeric variables include "Active", the Pulse rate (beats per minute) after exercise; "Rest", the Resting pulse rate (beats per minute) prior to exercise; "Exercise", the typical hours of weekly exercise; "Hgt," the participant height; and "Wgt," the participant weight. Binary variables "Sex" and "Smoke" correspond to participant sex (1 = female, 0 = male) and smoking status (1 = smoker, 0 = nonsmoker). 
+
+I was interested in this data to see if the difference in active and resting pulse rates is linked to exercise status. Athletes tend to have lower resting pulse rates, so I wonder if this will manifest in a strong difference between active and resting heart rates in the data collected. I also wondered if this effect would be affected by the participant's weight. 
+    
+
 
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
+library(fivethirtyeight)
 
-# if your dataset needs tidying, do so here
 
-# any other code here
+pulse <- read_csv("Pulse.csv")
+pulse
+
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+
+clust_dat<-pulse%>%dplyr::select(Active, Rest, Wgt, Exercise)
+
+#max sillouette width
+sil_width<-vector() 
+for(i in 2:10){  
+  kms <- kmeans(clust_dat,centers=i) 
+  sil <- silhouette(kms$cluster,dist(clust_dat)) 
+  sil_width[i]<-mean(sil[,3]) 
+}
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10)
+
+
+pam<-clust_dat%>%pam(k=2)
+pam
+
+plot(pam,which=2)
+
+pamclust <- clust_dat %>% mutate(cluster=as.factor(pam$clustering)) 
+
+#Visualize the clusters by showing all pairwise combinations of variables colored by cluster assignment
+library(GGally)
+ggpairs(pamclust, aes(color = cluster))
+
+pam$silinfo$avg.width
+
+
+```
 ```
 
-Discussion of clustering here
     
+PAM clustering was performed using 4 numeric variables of interest - Rest, Active, Exercise, and Wgt. The largest average sillouette width occurred with k = 2 clusters, so I proceeded with 2 clusters for further analysis. The goodness of fit of the cluster solution was slightly questionable. The average sillouette width obtained, 0.4, indicates that the structure found is weak and could potentially be artificial. 
+
+When the clusters were visualized by showing all pairwise combinations of variables, I noticed that the pairwise plots were quite similar to one another. For the Active, Rest, and Exercise variables, there is a lot of overlap between clusters. The red cluster appears to have slightly lower values for the Active and Rest variables. The Wgt variable plot had the most obvious difference between the two clusters, with the red cluster corresponding to lower weights than the blue cluster. I had envisioned there being a greater difference between active and rest pulse rates based on the individual's fitness level. Perhaps if the Exercise variable could take on more precise values than a 1-3 hour estimate, this relationship would have been more prominent in the data.
+
+
     
 ### Dimensionality Reduction with PCA
 
-```{R}
-# PCA code here
+
+
+
+```{r}
+pulse_df <- data.frame(scale(clust_dat))
+pulse_pca <- princomp(clust_dat, center = T, scale = T)
+
+## Number of PCs 
+eigval <- pulse_pca$sdev^2
+varprop <- round(eigval/sum(eigval), 2)
+varprop
+
+#Scree plot
+
+ggplot() + geom_bar(aes(y = varprop, x = 1:4), stat = "identity") + 
+    xlab("") + geom_path(aes(y = varprop, x = 1:4)) + geom_text(aes(x = 1:4, 
+    y = varprop, label = round(varprop, 2)), vjust = 1, col = "white", 
+    size = 5) + scale_y_continuous(breaks = seq(0, 0.6, 0.2), 
+    labels = scales::percent) + scale_x_continuous(breaks = 1:10)
+    
+summary(pulse_pca, loadings = T)
+
+# PC1 v PC2
+
+pulse_df %>% mutate(PC1=pulse_pca$scores[, 1], PC2=pulse_pca$scores[, 2]) %>% 
+  ggplot(aes(x=PC1, y=PC2)) + geom_point()
+
 ```
 
-Discussions of PCA here. 
+    
+PCA was performed on the same 4 numeric variables of interest from before: Rest, Active, Wgt, Exercise. The Scree plot generated revealed that 2 PCs were necessary to explain nearly 97% of the variance in the dataset. This is above the standard benchmark of 80%, so I opted to keep two principal components. PC1 accounts for 70% of the variance in the data and is associated with negative values for Wgt. Thus, if a subject scored high on PC1 they were of lower weight. PC2 accounts for 27% of the variance in the data and has positive Active and Rest values. The magnitude of the Active loading is much higher than that of the Rest loading for PC2. Scoring high on PC2 means that the subject has a high active heart rate after exercise and a lower resting heart rate before exercise. PC2 is capturing the proportion of the sample less likely to exercise regularly. PC3 captures a trade-off between the Rest (loading = -0.936) and Active (loading = 0.348) variables. The difference in signage and magnitude here means that subjects scoring high on PC3 have very low resting heart rates and moderate active heart rates. Lower values on both active and resting heart rates mean that this cohort is likely athletic. This is the relationship I envisioned largely defining the data, so it's interesting to me how it reflects for only 4% of the variance observed. PC3 was not included in further analysis. 
 
 ###  Linear Classifier
 
 ```{R}
 # linear classifier code here
-```
 
+fit <- lm(Smoke ~ Active + Rest + Hgt + Wgt + Exercise, 
+    data = pulse)
+score <- predict(fit, type = "response")
+score %>% round(3)
+score
+
+# Get in-sample performance
+class_diag(score, truth = pulse$Smoke, positive = 1)
+
+#Confusion matrix - Smoke
+
+table(truth = factor(pulse$Smoke == 1, levels = c("TRUE", 
+    "FALSE")), prediction = factor(score > 0.5, levels = c("TRUE", 
+    "FALSE"))) %>% addmargins()
+    
+fit2 <- lm(Sex ~ Active + Rest + Hgt + Wgt + Exercise, 
+    data = pulse)
+score <- predict(fit2, type = "response")
+score %>% round(3)
+score
+
+# Get in-sample performance
+class_diag(score, truth = pulse$Sex, positive = 1)
+
+#Confusion matrix - Sex
+
+table(truth = factor(pulse$Sex == 1, levels = c("TRUE", 
+    "FALSE")), prediction = factor(score > 0.5, levels = c("TRUE", 
+    "FALSE"))) %>% addmargins()
+
+109/122 #TNR
+100/119 #TPR
+
+    
+```
+    
+A linear regression model was used to classify the subjects by their binary gender variable based on the four numeric variables Active, Rest, Wgt, Exercise. The binary variable chosen was Sex, where 1 represented a female subject and 0 represented a male subject. Scores between 0.5 and 1 represented predicted female subjects. The AUC found was 0.9633. This AUC value tells me that the produced regression model was pretty good at predicting the sex of the subject based on their numeric data. A confusion matrix was then generated. I found that the specificity (TNR) of this linear classifier was 0.893. The sensitivity (TPR) was 0.840. 
+    
 ```{R}
 # cross-validation of linear classifier here
+
+k = 10
+data <- pulse[sample(nrow(pulse)), ]
+folds <- cut(seq(1:nrow(pulse)), breaks = k, labels = F)
+
+diags <- NULL
+
+for (i in 1:k) {
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    truth <- test$Sex
+}
+
+fit <- lm(Sex ~ Active + Rest + Hgt + Wgt + Exercise, 
+    data = train, family = "binomial")
+probs <- predict(fit, newdata = test, type = "response")
+
+## out-of-sample performance of classifier
+diags <- rbind(diags, class_diag(probs, truth, positive = 1))
+summarize_all(diags, mean)
+
 ```
 
-Discussion here
-
+Next, a k-fold CV was performed on the same model. The CV AUC obtained was 0.948, similar to the AUC generated from the sample data.  I would say the model is doing comparably well at predicting new observations. Because there isn't a significant decrease in AUC with the out-of-sample data, overfitting is not a concern. 
+    
+    
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
 # non-parametric classifier code here
+
+## k-nearest neighbors model
+knn_fit <- knn3(factor(Sex == 1, levels = c("TRUE", "FALSE")) ~ 
+    Active + Rest + Hgt + Wgt + Exercise, data = pulse, 
+    k = 5)
+
+## predicting binary Sex var 
+y_hat_knn <- predict(knn_fit, pulse)
+data.frame(y_hat_knn, ppt = pulse$X1)
+
+#in-sample performance
+class_diag(y_hat_knn[, 1], pulse$Sex, positive = 1)
+
+#conf matrix
+table(truth = factor(pulse$Smoke == 1, levels = c("TRUE", 
+    "FALSE")), prediction = factor(y_hat_knn[, 1] > 0.5, levels = c("TRUE", 
+    "FALSE"))) %>% addmargins()
+    
+9/26 #TPR
+97/206 #TNR   
+
 ```
 
+Next, k-nearest-neighbors was used to classify sex based on the 4 numeric variables Wgt, Active, Rest, and Exercise. The AUC was 0.966, similar to the AUC value generated for the linear classifier. However, the confusion matrix reveals some areas for concern. The specificity (TNR) value was 0.471 and the sensitivity (TPR) was 0.346. This is much lower than the corresponding TNR and TPR values obtained with the linear classifier. The linear classifier was better at predicting the binary variable in-sample compared to using the nonparametric model.
+    
 ```{R}
 # cross-validation of np classifier here
+
+k = 10
+
+data <- pulse[sample(nrow(pulse)), ]
+folds <- cut(seq(1:nrow(pulse)), breaks = k, labels = F)
+
+diags <- NULL
+
+for (i in 1:k) {
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    truth <- test$Sex
+    
+fit <- knn3(Sex ~ Active + Rest + Hgt + Wgt + Exercise, data = pulse)
+probs <- predict(fit, newdata = test)[, 2]
+diags <- rbind(diags, class_diag(probs, truth, positive = 1))
+
+}
+
+
+summarize_all(diags, mean)
+
+
+
+
 ```
 
-Discussion
+ 
+The CV AUC obtained for the nonparametric model was similar to the CV AUC obtained for the linear model, with an AUC of 0.965. Again, as with the linear model, I do not believe overfitting applies here because the CV AUC and in-sample AUC are so similar. 
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
 # regression model code here
+
+regression_data <- pulse %>% select(-Smoke, -Sex)
+fit <- lm(Rest ~ ., data = regression_data)
+yhat <- predict(fit)
+
+
+#MSE
+
+mean((regression_data$Rest - yhat)^2) 
 ```
+
 
 ```{R}
 # cross-validation of regression model here
+
+set.seed(1234)
+k = 10
+
+data <- regression_data[sample(nrow(regression_data)), ]
+folds <- cut(seq(1:nrow(regression_data)), breaks = k, labels = F)
+
+diags <- NULL
+for (i in 1:k) {
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    fit <- lm(Rest ~ ., data = train)
+    yhat <- predict(fit, newdata = test)
+    diags <- mean((test$Rest - yhat)^2)
+}
+
+mean(diags)
 ```
 
-Discussion
+  
+Finally, a linear regression model was used to predict the numeric variable Rest from all other numeric variables (Exercise, Active, Hgt, Wgt). The MSE obtained for the overall dataset was 49.062. The average MSE across k testing folds after performing k-fold CV on the model was 27.305. This model does not show signs of overfitting, as there is not a higher MSE obtained in CV. 
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
+hi <- "Hello"
 ```
 
 ```{python}
-# python code here
+hi = "world"
+print(r.hi, hi)
+
 ```
 
-Discussion
+```{r}
+cat(c(hi,py$hi))
+```
+
+In the R code chunk, I created an object called “hi” that prints “Hello." For the python code chunk, I created another object called "hi" that prints "world." Reticulate was used to share the objects between R and python. The "r.hi" and "py$hi" terms were used to share the objects defined with the other language. Interestingly, objects can share names without overwriting one another when knitted. Print and cat functions were used for concatentation.
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+None.
 
 
 
